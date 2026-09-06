@@ -69,7 +69,7 @@ weather
 
 The value of the final expression becomes `ExecuteResult.result`; `print()` output becomes `logs`.
 
-Runnable examples: [`examples/ai-sdk.ts`](examples/ai-sdk.ts) (Node + a real model) and [`examples/cloudflare-worker`](examples/cloudflare-worker) (workerd).
+Runnable examples: [`examples/ai-sdk.ts`](examples/ai-sdk.ts) (Node + a real model), [`examples/cloudflare-worker`](examples/cloudflare-worker) (direct Code Mode execution in workerd), and [`examples/cloudflare-think-agent`](examples/cloudflare-think-agent) (a stateful Think agent that calls Monty Code Mode).
 
 ## Public API
 
