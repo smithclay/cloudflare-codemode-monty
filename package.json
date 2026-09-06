@@ -1,6 +1,6 @@
 {
   "name": "@smithclay/cloudflare-codemode-monty",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Monty Python execution for Cloudflare Code Mode",
   "keywords": [
     "agents",
