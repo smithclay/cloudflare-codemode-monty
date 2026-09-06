@@ -24,7 +24,7 @@ import type {
   Executor,
   ResolvedProvider,
 } from "@cloudflare/codemode";
-import { DISPATCH_NAME, buildBridge, montyToJs } from "./bridge.js";
+import { DISPATCH_NAME, bindToolDefinition, montyToJs, prepareToolDefinition } from "./bridge.js";
 import { buildPrelude } from "./prelude.js";
 
 /**
@@ -107,8 +107,9 @@ export class MontyExecutor implements Executor {
     const printer = new CollectStreams();
     let session: MontySession | undefined;
     try {
-      const { namespaces, dispatch } = buildBridge(providers);
-      const prelude = buildPrelude(namespaces);
+      const definition = prepareToolDefinition(providers);
+      const { dispatch } = bindToolDefinition(definition, providers);
+      const prelude = buildPrelude(definition.namespaces);
       const pool = await this.#ensurePool();
       session = await pool.checkout({ limits: this.#limits });
       // Fed separately so the model's code keeps its own line numbers in tracebacks.

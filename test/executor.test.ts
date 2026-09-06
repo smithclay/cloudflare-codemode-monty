@@ -28,6 +28,11 @@ describe("pure Python", () => {
     expect(result.result).toEqual({ a: 1, b: [1, 2], c: { d: true } });
   });
 
+  it("rejects a final result with non-string dictionary keys", async () => {
+    const result = await executor.execute('{1: "one"}', []);
+    expect(result.error).toContain("string dictionary keys");
+  });
+
   it("strips a markdown code fence", async () => {
     await expect(executor.execute("```python\n40 + 2\n```", [])).resolves.toEqual({ result: 42 });
   });

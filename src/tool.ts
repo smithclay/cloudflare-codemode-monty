@@ -14,7 +14,7 @@
 import { asSchema, jsonSchema, tool, type Tool } from "ai";
 import type { CodeInput, CodeOutput, CreateCodeToolOptions } from "@cloudflare/codemode/ai";
 import type { Executor, ResolvedProvider, ToolProvider } from "@cloudflare/codemode";
-import { buildBridge } from "./bridge.js";
+import { prepareToolDefinition } from "./bridge.js";
 import { describeProviders } from "./describe.js";
 
 /** Same options as Cloudflare's `createCodeTool`; `{{types}}` is the Python API block. */
@@ -70,9 +70,9 @@ export function createMontyCodeTool(
   // The bridge is the source of truth for the Python namespace. Validate it
   // before creating a tool description so the model cannot be shown a surface
   // that every execution would reject (for example, colliding tool names).
-  const { namespaces } = buildBridge(resolved);
+  const definition = prepareToolDefinition(resolved);
   const preparedByName = new Map(prepared.map((provider) => [provider.name, provider]));
-  const documented = namespaces.flatMap(({ name, tools }) => {
+  const documented = definition.namespaces.flatMap(({ name, tools }) => {
     const provider = preparedByName.get(name)!;
     if (provider.types !== undefined) return [];
     return [

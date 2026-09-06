@@ -96,37 +96,83 @@ export interface MontyNamespace {
   tools: { pythonName: string; toolName: string }[];
 }
 
-export interface MontyBridge {
+/**
+ * A validated, data-only description of the Python tool surface.
+ *
+ * It deliberately contains provider and tool names only — no host functions.
+ * That makes it safe to reuse when a session is restored against a new host:
+ * `bindToolDefinition()` verifies the new host still supplies this exact
+ * surface before it creates a dispatcher.
+ */
+export interface MontyToolDefinition {
   namespaces: MontyNamespace[];
+}
+
+export interface MontyBridge {
   /** The `__codemode_call` implementation handed to Monty's `externalLookup`. */
   dispatch: (...args: unknown[]) => Promise<unknown>;
 }
 
 /**
- * Convert a value Monty produced from Python into plain JS.
+ * Convert a value Monty produced from Python at a host boundary.
  *
- * Monty maps a Python `dict` to a JS `Map` and a `set` to a `Set`. Cloudflare's
- * resolved tool functions validate their input against a JSON Schema (Zod or an
- * AI SDK `jsonSchema()` wrapper), which expects plain objects and arrays — so
- * every value crossing into a tool, and the final result crossing back to the
- * model, is normalized here.
+ * The supported contract is JSON-like values: null, booleans, finite numbers,
+ * strings, arrays, and records with string keys. Monty maps Python `dict` to a
+ * JS `Map`, which is converted to a plain record only when every key is a
+ * string. Python sets and non-string dictionary keys are rejected rather than
+ * silently changing meaning. Date, binary, and Monty marker values are passed
+ * through as opaque values because this conversion is not their serializer.
+ *
+ * This runs only for tool inputs and final results. Monty session state remains
+ * in Monty's own representation.
  */
 export function montyToJs(value: unknown): unknown {
+  return convertBoundaryValue(value, "value");
+}
+
+function convertBoundaryValue(value: unknown, path: string): unknown {
   if (value instanceof Map) {
     const out: Record<string, unknown> = {};
-    for (const [key, item] of value) setOwn(out, String(key), montyToJs(item));
+    for (const [key, item] of value) {
+      if (typeof key !== "string") {
+        throw new MontyBridgeError(
+          `Monty bridge only supports string dictionary keys at ${path}; received ${typeof key}`,
+        );
+      }
+      setOwn(out, key, convertBoundaryValue(item, `${path}.${key}`));
+    }
     return out;
   }
-  if (value instanceof Set) return Array.from(value, montyToJs);
-  if (Array.isArray(value)) return value.map(montyToJs);
-  if (value === null || typeof value !== "object") return value;
+  if (value instanceof Set) {
+    throw new MontyBridgeError(`Monty bridge does not support Python sets at ${path}`);
+  }
+  if (Array.isArray(value))
+    return value.map((item, index) => convertBoundaryValue(item, `${path}[${index}]`));
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new MontyBridgeError(`Monty bridge only supports finite numbers at ${path}`);
+    }
+    return value;
+  }
+  if (typeof value !== "object") {
+    throw new MontyBridgeError(`Monty bridge does not support ${typeof value} values at ${path}`);
+  }
   if (value instanceof Uint8Array || value instanceof ArrayBuffer || value instanceof Date)
     return value;
   // Monty's marker objects (`__monty_type__`: Date/DateTime/TimeDelta/Exception)
   // are already plain and are passed through whole.
-  if ("__monty_type__" in value) return value;
+  if (Object.hasOwn(value, "__monty_type__")) return value;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new MontyBridgeError(
+      `Monty bridge does not support ${value.constructor.name} values at ${path}`,
+    );
+  }
   const out: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) setOwn(out, key, montyToJs(item));
+  for (const [key, item] of Object.entries(value)) {
+    setOwn(out, key, convertBoundaryValue(item, `${path}.${key}`));
+  }
   return out;
 }
 
@@ -141,13 +187,15 @@ function setOwn(target: Record<string, unknown>, key: string, value: unknown): v
 }
 
 /**
- * Build the Python-visible namespace layout and the single dispatch function
- * for a set of Cloudflare-resolved providers.
+ * Prepare the Python-visible namespace layout from a set of providers.
+ *
+ * This validates naming and collisions without retaining live functions, so
+ * descriptions, generated Python, and a future restored execution can share
+ * one stable definition.
  */
-export function buildBridge(providers: ResolvedProvider[]): MontyBridge {
+export function prepareToolDefinition(providers: ResolvedProvider[]): MontyToolDefinition {
   const namespaces: MontyNamespace[] = [];
-  // provider -> python method name -> the Cloudflare-resolved function.
-  const routes = new Map<string, Map<string, (...args: unknown[]) => Promise<unknown>>>();
+  const claimedNamespaces = new Set<string>();
 
   for (const provider of providers) {
     const namespace = provider.name;
@@ -157,15 +205,15 @@ export function buildBridge(providers: ResolvedProvider[]): MontyBridge {
     if (namespace === DISPATCH_NAME) {
       throw new MontyBridgeError(`Provider name "${namespace}" is reserved`);
     }
-    if (routes.has(namespace)) {
+    if (claimedNamespaces.has(namespace)) {
       throw new MontyBridgeError(`Duplicate provider name "${namespace}"`);
     }
+    claimedNamespaces.add(namespace);
 
-    const fns = new Map<string, (...args: unknown[]) => Promise<unknown>>();
     const tools: MontyNamespace["tools"] = [];
     const claimed = new Map<string, string>();
 
-    for (const [toolName, fn] of Object.entries(provider.fns)) {
+    for (const toolName of Object.keys(provider.fns)) {
       const method = pythonName(toolName);
       const existing = claimed.get(method);
       if (existing !== undefined && existing !== toolName) {
@@ -174,12 +222,67 @@ export function buildBridge(providers: ResolvedProvider[]): MontyBridge {
         );
       }
       claimed.set(method, toolName);
-      fns.set(method, fn);
       tools.push({ pythonName: method, toolName });
     }
 
-    routes.set(namespace, fns);
     namespaces.push({ name: namespace, tools });
+  }
+
+  return { namespaces };
+}
+
+/**
+ * Bind a prepared definition to one concrete host's resolved functions.
+ *
+ * A host must provide the same providers and raw tool names as the definition;
+ * otherwise restoration could execute code against a changed tool surface.
+ */
+export function bindToolDefinition(
+  definition: MontyToolDefinition,
+  providers: ResolvedProvider[],
+): MontyBridge {
+  const providersByName = new Map<string, ResolvedProvider>();
+  for (const provider of providers) {
+    if (providersByName.has(provider.name)) {
+      throw new MontyBridgeError(
+        `Duplicate provider name "${provider.name}" while binding tool definition`,
+      );
+    }
+    providersByName.set(provider.name, provider);
+  }
+
+  if (providersByName.size !== definition.namespaces.length) {
+    throw new MontyBridgeError("Host providers do not match the prepared tool definition");
+  }
+
+  // provider -> python method name -> the Cloudflare-resolved function.
+  const routes = new Map<string, Map<string, (...args: unknown[]) => Promise<unknown>>>();
+  for (const namespace of definition.namespaces) {
+    const provider = providersByName.get(namespace.name);
+    if (provider === undefined) {
+      throw new MontyBridgeError(
+        `Host is missing provider "${namespace.name}" from the prepared tool definition`,
+      );
+    }
+
+    const fnsByToolName = new Map(Object.entries(provider.fns));
+    if (fnsByToolName.size !== namespace.tools.length) {
+      throw new MontyBridgeError(
+        `Host tools for provider "${namespace.name}" do not match the prepared tool definition`,
+      );
+    }
+
+    const fns = new Map<string, (...args: unknown[]) => Promise<unknown>>();
+    for (const { pythonName: method, toolName } of namespace.tools) {
+      const fn = fnsByToolName.get(toolName);
+      if (typeof fn !== "function") {
+        throw new MontyBridgeError(
+          `Host does not match the prepared tool definition: missing tool "${namespace.name}.${toolName}"`,
+        );
+      }
+      fns.set(method, fn);
+    }
+    routes.set(namespace.name, fns);
   }
 
   const dispatch = async (...args: unknown[]): Promise<unknown> => {
@@ -199,5 +302,5 @@ export function buildBridge(providers: ResolvedProvider[]): MontyBridge {
     return await fn(...callArgs.map(montyToJs));
   };
 
-  return { namespaces, dispatch };
+  return { dispatch };
 }

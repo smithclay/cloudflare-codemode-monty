@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { MontyBridgeError, buildBridge, montyToJs, pythonName } from "../src/bridge.js";
+import {
+  MontyBridgeError,
+  bindToolDefinition,
+  montyToJs,
+  prepareToolDefinition,
+  pythonName,
+} from "../src/bridge.js";
 import { buildPrelude } from "../src/prelude.js";
 
 const fn = async () => "ok";
@@ -30,7 +36,7 @@ describe("montyToJs", () => {
     const value = new Map<string, unknown>([
       ["a", 1],
       ["b", [new Map([["c", 2]])]],
-      ["d", new Set([1, 2])],
+      ["d", [1, 2]],
     ]);
     expect(montyToJs(value)).toEqual({ a: 1, b: [{ c: 2 }], d: [1, 2] });
   });
@@ -57,14 +63,20 @@ describe("montyToJs", () => {
     expect(result.admin).toBeUndefined();
     expect(result["__proto__"]).toEqual({ admin: true });
   });
+
+  it("rejects values that would be converted with different Python semantics", () => {
+    expect(() => montyToJs(new Set(["a"]))).toThrow(/does not support Python sets/);
+    expect(() => montyToJs(new Map([[1, "one"]]))).toThrow(/string dictionary keys/);
+    expect(() => montyToJs(Number.POSITIVE_INFINITY)).toThrow(/finite numbers/);
+  });
 });
 
-describe("buildBridge", () => {
+describe("prepareToolDefinition", () => {
   it("rejects provider names that cannot be Python globals", () => {
-    expect(() => buildBridge([{ name: "my-tools", fns: {} }])).toThrow(MontyBridgeError);
-    expect(() => buildBridge([{ name: "__codemode_call", fns: {} }])).toThrow(/reserved/);
+    expect(() => prepareToolDefinition([{ name: "my-tools", fns: {} }])).toThrow(MontyBridgeError);
+    expect(() => prepareToolDefinition([{ name: "__codemode_call", fns: {} }])).toThrow(/reserved/);
     expect(() =>
-      buildBridge([
+      prepareToolDefinition([
         { name: "a", fns: {} },
         { name: "a", fns: {} },
       ]),
@@ -72,20 +84,43 @@ describe("buildBridge", () => {
   });
 
   it("rejects two tools that collapse onto the same Python name", () => {
-    expect(() => buildBridge([{ name: "codemode", fns: { "a-b": fn, "a.b": fn } }])).toThrow(
-      /both sanitize to "a_b"/,
+    expect(() =>
+      prepareToolDefinition([{ name: "codemode", fns: { "a-b": fn, "a.b": fn } }]),
+    ).toThrow(/both sanitize to "a_b"/);
+  });
+});
+
+describe("bindToolDefinition", () => {
+  it("routes a dispatch call to the resolved tool function", async () => {
+    const providers = [{ name: "codemode", fns: { hello: async (a: unknown) => a } }];
+    const definition = prepareToolDefinition(providers);
+    const { dispatch } = bindToolDefinition(definition, providers);
+    await expect(dispatch("codemode", "hello", new Map([["n", 1]]))).resolves.toEqual({ n: 1 });
+    await expect(dispatch("codemode", "hello", new Map([[1, "one"]]))).rejects.toThrow(
+      /string dictionary keys/,
     );
   });
 
-  it("routes a dispatch call to the resolved tool function", async () => {
-    const { dispatch } = buildBridge([{ name: "codemode", fns: { hello: async (a) => a } }]);
-    await expect(dispatch("codemode", "hello", new Map([["n", 1]]))).resolves.toEqual({ n: 1 });
-  });
-
   it("names the available tools when one is missing", async () => {
-    const { dispatch } = buildBridge([{ name: "codemode", fns: { hello: fn } }]);
+    const providers = [{ name: "codemode", fns: { hello: fn } }];
+    const { dispatch } = bindToolDefinition(prepareToolDefinition(providers), providers);
     await expect(dispatch("codemode", "nope")).rejects.toThrow(/Available: hello/);
     await expect(dispatch("other", "hello")).rejects.toThrow(/No such tool namespace/);
+  });
+
+  it("requires a replacement host to match the prepared tool definition", () => {
+    const definition = prepareToolDefinition([{ name: "codemode", fns: { hello: fn } }]);
+    expect(() =>
+      bindToolDefinition(definition, [{ name: "codemode", fns: { goodbye: fn } }]),
+    ).toThrow(/does not match the prepared tool definition/);
+  });
+
+  it("binds an unchanged definition to a replacement host", async () => {
+    const definition = prepareToolDefinition([{ name: "codemode", fns: { hello: fn } }]);
+    const { dispatch } = bindToolDefinition(definition, [
+      { name: "codemode", fns: { hello: async () => "replacement" } },
+    ]);
+    await expect(dispatch("codemode", "hello")).resolves.toBe("replacement");
   });
 });
 

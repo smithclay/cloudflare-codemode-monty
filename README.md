@@ -111,6 +111,10 @@ github = __monty_codemode_namespace_0()
 
 Monty's JS binding has no host-object support (`methodCall` is refused with _"method calls on host objects are not supported"_) and does not dispatch `__getattr__` through a host lookup, so a generated prelude is the only way to get `github.list_issues(...)` rather than `await __codemode_call("github", "list_issues", ...)`. See [Upstream notes](#upstream-notes).
 
+### Value boundary
+
+Python tool inputs and the final result use a deliberately narrow conversion contract: null, booleans, finite numbers, strings, lists and string-keyed dictionaries. Python `set` values and dictionaries with non-string keys fail at this boundary instead of becoming arrays or stringifying/collapsing keys. Monty marker values plus `Date`, `ArrayBuffer` and `Uint8Array` values remain opaque. Conversion is limited to tool inputs and final results; session/interpreter state remains in Monty's representation.
+
 ## Runtime support
 
 ### Node — supported and tested
