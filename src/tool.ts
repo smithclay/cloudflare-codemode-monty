@@ -14,8 +14,8 @@
 import { asSchema, jsonSchema, tool, type Tool } from "ai";
 import type { CodeInput, CodeOutput, CreateCodeToolOptions } from "@cloudflare/codemode/ai";
 import type { Executor, ResolvedProvider, ToolProvider } from "@cloudflare/codemode";
-import { pythonName } from "./bridge.js";
-import { describeProviders, type DescribedTool } from "./describe.js";
+import { buildBridge } from "./bridge.js";
+import { describeProviders } from "./describe.js";
 
 /** Same options as Cloudflare's `createCodeTool`; `{{types}}` is the Python API block. */
 export type CreateMontyCodeToolOptions = CreateCodeToolOptions;
@@ -60,23 +60,31 @@ export function createMontyCodeTool(
   options: CreateMontyCodeToolOptions,
 ): Tool<CodeInput, CodeOutput> {
   const providers = normalizeProviders(options.tools);
-  const resolved: ResolvedProvider[] = [];
-  const documented: { name: string; tools: DescribedTool[] }[] = [];
+  const prepared = providers.map((provider) => ({
+    name: provider.name ?? "codemode",
+    tools: filterTools(provider.tools),
+    types: provider.types,
+  }));
+  const resolved = prepared.map(({ name, tools }) => ({ name, fns: extractFns(tools) }));
 
-  for (const provider of providers) {
-    const name = provider.name ?? "codemode";
-    const runnable = filterTools(provider.tools);
-    resolved.push({ name, fns: extractFns(runnable) });
-    if (provider.types === undefined) {
-      documented.push({
+  // The bridge is the source of truth for the Python namespace. Validate it
+  // before creating a tool description so the model cannot be shown a surface
+  // that every execution would reject (for example, colliding tool names).
+  const { namespaces } = buildBridge(resolved);
+  const preparedByName = new Map(prepared.map((provider) => [provider.name, provider]));
+  const documented = namespaces.flatMap(({ name, tools }) => {
+    const provider = preparedByName.get(name)!;
+    if (provider.types !== undefined) return [];
+    return [
+      {
         name,
-        tools: Object.entries(runnable).map(([toolName, t]) => ({
-          pythonName: pythonName(toolName),
-          tool: t,
+        tools: tools.map(({ pythonName, toolName }) => ({
+          pythonName,
+          tool: provider.tools[toolName]!,
         })),
-      });
-    }
-  }
+      },
+    ];
+  });
 
   // A provider's custom type block replaces its generated block, as it does in
   // Cloudflare's createCodeTool().
@@ -143,7 +151,10 @@ function extractFns(tools: ToolRecord): Record<string, (...args: unknown[]) => P
     const execute = t.execute;
     if (typeof execute !== "function") continue;
     const raw = t.inputSchema ?? t.parameters;
-    const schema = raw !== null && raw !== undefined ? safeAsSchema(raw) : undefined;
+    // Match Cloudflare's AI adapter: schema normalization is part of the
+    // execution boundary, so a broken lazy schema must fail rather than make
+    // an otherwise schema-backed tool run unchecked.
+    const schema = raw !== null && raw !== undefined ? asSchema(raw as never) : undefined;
     fns[name] = schema?.validate
       ? async (args: unknown) => {
           const validated = await schema.validate!(args);
@@ -153,12 +164,4 @@ function extractFns(tools: ToolRecord): Record<string, (...args: unknown[]) => P
       : (execute as (...args: unknown[]) => Promise<unknown>);
   }
   return fns;
-}
-
-function safeAsSchema(raw: unknown): ReturnType<typeof asSchema> | undefined {
-  try {
-    return asSchema(raw as never);
-  } catch {
-    return undefined;
-  }
 }

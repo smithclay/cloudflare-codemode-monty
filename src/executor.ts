@@ -4,7 +4,8 @@
  * Cloudflare's contract is `execute(code, providers, options?) => ExecuteResult`
  * and "implementations should never throw"; everything below funnels into that.
  * The only substitution is the language: `code` is a Python program, not a JS
- * async arrow function.
+ * async arrow function. The supported provider subset is `name` plus `fns`:
+ * JavaScript provider preludes and connector bindings are rejected explicitly.
  */
 
 import {
@@ -92,6 +93,16 @@ export class MontyExecutor implements Executor {
     const providers: ResolvedProvider[] = Array.isArray(providersOrFns)
       ? providersOrFns
       : [{ name: "codemode", fns: providersOrFns }];
+
+    const preludeProvider = providers.find((provider) => provider.prelude?.trim());
+    if (preludeProvider) {
+      return {
+        result: undefined,
+        error:
+          `MontyExecutor does not support the JavaScript prelude on provider "${preludeProvider.name}". ` +
+          "Expose its behavior as a resolved function instead.",
+      };
+    }
 
     const printer = new CollectStreams();
     let session: MontySession | undefined;

@@ -1,7 +1,9 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { tool } from "ai";
+import { lazySchema } from "@ai-sdk/provider-utils";
 import { z } from "zod";
 import { MontyExecutor, createMontyCodeTool } from "../src/index.js";
+import { describeNamespace } from "../src/describe.js";
 
 const executor = new MontyExecutor();
 afterAll(() => executor.close());
@@ -97,6 +99,32 @@ describe("execution", () => {
     await expect(run(codeTool, "await codemode.getWeather({})")).rejects.toThrow(
       /Code execution failed/,
     );
+  });
+
+  it("fails setup when a tool schema cannot be normalized", () => {
+    const schemaError = new Error("schema unavailable");
+    const inputSchema = lazySchema(() => {
+      throw schemaError;
+    });
+
+    expect(() =>
+      createMontyCodeTool({
+        executor,
+        tools: {
+          guarded: tool({ inputSchema, execute: async () => "must not run" }),
+        },
+      }),
+    ).toThrow(schemaError);
+  });
+
+  it("keeps description generation best-effort for an incomplete schema", () => {
+    const inputSchema = lazySchema(() => {
+      throw new Error("schema unavailable");
+    });
+
+    expect(() =>
+      describeNamespace("codemode", [{ pythonName: "guarded", tool: { inputSchema } }]),
+    ).not.toThrow();
   });
 
   it("throws with the captured output when the program fails", async () => {
@@ -206,5 +234,17 @@ describe("providers", () => {
     });
     expect(codeTool.description).toContain("async def runnable");
     expect(codeTool.description).not.toContain("async def clientOnly");
+  });
+
+  it("fails construction when tool names collide after Python normalization", () => {
+    expect(() =>
+      createMontyCodeTool({
+        executor,
+        tools: {
+          "a-b": tool({ inputSchema: z.object({}), execute: async () => "first" }),
+          "a.b": tool({ inputSchema: z.object({}), execute: async () => "second" }),
+        },
+      }),
+    ).toThrow(/both sanitize to "a_b"/);
   });
 });

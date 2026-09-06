@@ -159,6 +159,15 @@ describe("multiple providers", () => {
     const result = await executor.execute("await codemode.__init___({})", tools);
     expect(result).toEqual({ result: "ready" });
   });
+
+  it("keeps provider identity independent of generated implementation names", async () => {
+    const tools = [
+      provider("_CodeMode_b", { ping: async () => "prefixed" }),
+      provider("b", { ping: async () => "plain" }),
+    ];
+    const result = await executor.execute("[await _CodeMode_b.ping({}), await b.ping({})]", tools);
+    expect(result).toEqual({ result: ["prefixed", "plain"] });
+  });
 });
 
 describe("errors", () => {
@@ -214,6 +223,18 @@ describe("errors", () => {
       connectors: [{ name: "x", binding: { callTool: async () => null } }],
     });
     expect(result.error).toContain("connector bindings");
+  });
+
+  it("rejects JavaScript provider preludes rather than silently ignoring them", async () => {
+    const result = await executor.execute("await codemode.ping({})", [
+      {
+        name: "codemode",
+        fns: { ping: async () => "host" },
+        prelude: 'codemode.ping = async () => "override"',
+      },
+    ]);
+    expect(result.error).toContain("does not support the JavaScript prelude");
+    expect(result.error).toContain('provider "codemode"');
   });
 
   it("never throws", async () => {

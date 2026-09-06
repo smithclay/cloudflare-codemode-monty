@@ -22,8 +22,12 @@ import { DISPATCH_NAME, type MontyNamespace } from "./bridge.js";
  */
 export function buildPrelude(namespaces: MontyNamespace[]): string {
   if (namespaces.length === 0) return "";
-  const blocks = namespaces.map(({ name, tools }) => {
-    const className = `_CodeMode_${name}`;
+  // Class names are implementation details, not public provider names. Pick
+  // names outside the public namespace so a provider can never overwrite
+  // another provider's proxy.
+  const occupied = new Set(namespaces.map(({ name }) => name));
+  const blocks = namespaces.map(({ name, tools }, index) => {
+    const className = implementationName(index, occupied);
     const methods = tools.map(
       ({ pythonName }) =>
         `    async def ${pythonName}(self, *args, **kwargs):\n` +
@@ -33,4 +37,13 @@ export function buildPrelude(namespaces: MontyNamespace[]): string {
     return `class ${className}:\n${body}\n${name} = ${className}()\n`;
   });
   return blocks.join("\n");
+}
+
+/** Allocate a Python-valid private class name that cannot shadow a provider. */
+function implementationName(index: number, occupied: Set<string>): string {
+  let suffix = index;
+  let name = `__monty_codemode_namespace_${suffix}`;
+  while (occupied.has(name)) name = `__monty_codemode_namespace_${++suffix}`;
+  occupied.add(name);
+  return name;
 }

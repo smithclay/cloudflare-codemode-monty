@@ -98,10 +98,19 @@ describe("buildPrelude", () => {
     const prelude = buildPrelude([
       { name: "github", tools: [{ pythonName: "list_issues", toolName: "list-issues" }] },
     ]);
-    expect(prelude).toContain("class _CodeMode_github:");
+    expect(prelude).toContain("class __monty_codemode_namespace_0:");
     expect(prelude).toContain("async def list_issues(self, *args, **kwargs):");
     expect(prelude).toContain('await __codemode_call("github", "list_issues", *args, **kwargs)');
-    expect(prelude).toContain("github = _CodeMode_github()");
+    expect(prelude).toContain("github = __monty_codemode_namespace_0()");
+  });
+
+  it("keeps implementation names out of the public provider namespace", () => {
+    const prelude = buildPrelude([
+      { name: "__monty_codemode_namespace_0", tools: [] },
+      { name: "b", tools: [] },
+    ]);
+    expect(prelude).toContain("class __monty_codemode_namespace_1:");
+    expect(prelude).toContain("__monty_codemode_namespace_0 = __monty_codemode_namespace_1()");
   });
 
   it("emits a usable class for a provider with no tools", () => {

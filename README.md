@@ -6,7 +6,7 @@ A [Monty](https://github.com/pydantic/monty) execution backend for [Cloudflare C
 
 ## Why
 
-Code Mode's premise is that a model orchestrates tools better by writing a program than by emitting one tool call per turn. Cloudflare's executor runs that program as JavaScript in a dynamically-loaded Worker. This package swaps the language and the sandbox, and nothing else:
+Code Mode's premise is that a model orchestrates tools better by writing a program than by emitting one tool call per turn. Cloudflare's executor runs that program as JavaScript in a dynamically-loaded Worker. This package supplies a Python/Monty execution path for the AI SDK tool-provider subset:
 
 ```
 LLM writes Python
@@ -20,7 +20,7 @@ Cloudflare Code Mode providers  (ResolvedProvider.fns — schema-validated)
 real tools
 ```
 
-Cloudflare supplies the **tool model**: providers, namespaces, JSON Schema, approval filtering, and the `Executor` contract. Monty supplies the **code execution model**: Python parsing, sandboxing, async host-function suspension, value conversion, error propagation. This package is the glue — about 500 lines.
+Cloudflare's AI SDK adapter supplies the **tool model**: providers, namespaces, JSON Schema and approval filtering. Monty supplies the **code execution model**: Python parsing, sandboxing, async host-function suspension, value conversion and error propagation. This package adapts the supported intersection; it does not emulate Code Mode's JavaScript runtime.
 
 ## Install
 
@@ -78,7 +78,9 @@ export { MontyExecutor, createMontyCodeTool, DEFAULT_MONTY_DESCRIPTION };
 export type { MontyExecutorOptions, CreateMontyCodeToolOptions, MontyPool };
 ```
 
-`MontyExecutor` implements Cloudflare's `Executor` interface, so it drops into anything that takes one — including `createCodemodeRuntime` inside a Worker:
+`MontyExecutor` structurally implements Cloudflare's `Executor` interface, but it supports a deliberately narrow contract: Python source plus direct `ResolvedProvider` namespaces containing `name` and `fns` (or the equivalent bare function record). It rejects connector bindings and non-empty JavaScript `ResolvedProvider.prelude` values.
+
+Use `createMontyCodeTool` for the supported AI SDK integration. `MontyExecutor` is **not** a drop-in executor for `createCodemodeRuntime`: that runtime supplies JavaScript descriptions, source normalization, provider preludes, connectors, durable replay and approval behavior that Monty does not implement.
 
 ```ts
 const executor = new MontyExecutor();
@@ -98,11 +100,11 @@ await executor.close(); // shuts down a pool the executor created
 Each Cloudflare provider becomes a Python global with one method per tool. That namespace is _generated Python_, fed to Monty as its own snippet before the model's code:
 
 ```python
-class _CodeMode_github:
+class __monty_codemode_namespace_0:
     async def list_issues(self, *args, **kwargs):
         return await __codemode_call("github", "list_issues", *args, **kwargs)
 
-github = _CodeMode_github()
+github = __monty_codemode_namespace_0()
 ```
 
 `*args, **kwargs` forwarding means `f({"a": 1})`, `f(a=1)` and `f(1, 2)` all reach the resolved tool function as the argument list Cloudflare's own `ToolDispatcher` would have produced. Feeding the prelude separately keeps the model's line numbers correct in tracebacks.
@@ -157,14 +159,14 @@ Behaviour verified against `@cloudflare/codemode@0.5.1` and `@pydantic/monty@0.0
 - **`@cloudflare/codemode` cannot be imported outside workerd.** Both `.` and `./ai` transitively `import "cloudflare:workers"` at module scope, so `resolveProvider`, `sanitizeToolName`, `generateTypes` and `runCode` are unusable under Node. This package therefore imports Cloudflare **types only** and reimplements the ~40 lines of provider normalization, approval filtering and `asSchema` validation that `createCodeTool` performs, matching upstream behaviour exactly.
 - **There is no `positionalArgs`.** Nothing in 0.5.1 has that flag. What exists is a variadic contract: `ResolvedProvider.fns` is `(...args) => Promise<unknown>` and `ToolDispatcher` spreads the sandbox's argument list (upstream's own `codemode.run(name, input)` uses two). The Python prelude forwards positional arguments the same way.
 - **`runCode`/`normalizeCode` are JavaScript-specific.** `normalizeCode` parses with acorn and reshapes source into an async arrow function. Only its `stripCodeFences` step has a Python analogue, which the executor applies; the rest is skipped because a Monty snippet is already a program whose trailing expression is its result.
-- **`ResolvedProvider.prelude`** is sandbox-side _JavaScript_ and is ignored here.
+- **`ResolvedProvider.prelude`** is sandbox-side _JavaScript_ and is rejected here. Expose equivalent behavior as a resolved host function; silently ignoring an override would change tool semantics.
 - **Monty maps Python `dict` to a JS `Map`** and `set` to a `Set`. Tool inputs and the final result are converted to plain objects/arrays so JSON Schema validation and JSON serialization work.
 - **Awaiting a host function requires it to return a promise.** The dispatcher is always `async`, so `await codemode.tool(...)` always works.
 - **Monty's importable stdlib is small** — `asyncio`, `json`, `math`, `re`, `datetime`, `itertools`, `collections` and `os` resolve; `random`, `functools`, `statistics`, `base64`, `hashlib` and `urllib` do not. The generated tool description says so.
 
 ## Not implemented in v0
 
-Snapshots, Durable Object persistence, resumable execution, approvals, rollback, R2 snapshot storage, MCP/OpenAPI adapters, filesystem emulation, Python package installation, streaming logs, caching, execution pooling beyond Monty's own. Cloudflare's `ExecuteOptions.connectors` (Workers-RPC connector bindings) is rejected with a clear error rather than silently ignored.
+Cloudflare's `createCodemodeRuntime`, snapshots, Durable Object persistence, resumable execution, approvals, rollback, R2 snapshot storage, MCP/OpenAPI adapters, filesystem emulation, Python package installation, streaming logs, caching, execution pooling beyond Monty's own. Cloudflare's `ExecuteOptions.connectors` (Workers-RPC connector bindings) and JavaScript `ResolvedProvider.prelude` values are rejected with clear errors rather than silently ignored.
 
 ## Development
 
