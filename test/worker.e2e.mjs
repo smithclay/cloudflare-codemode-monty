@@ -11,12 +11,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 const cwd = fileURLToPath(new URL("../examples/cloudflare-worker", import.meta.url));
+const wrangler = fileURLToPath(
+  new URL("../node_modules/wrangler/bin/wrangler.js", import.meta.url),
+);
 const PORT = 8788;
 const BASE = `http://127.0.0.1:${PORT}`;
 
 let dev;
+let devOutput = "";
 
-async function waitForReady(timeoutMs = 120_000) {
+async function waitForReady(timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     try {
@@ -27,7 +31,7 @@ async function waitForReady(timeoutMs = 120_000) {
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  throw new Error("wrangler dev did not become ready");
+  throw new Error(`wrangler dev did not become ready:\n${devOutput}`);
 }
 
 async function run(code) {
@@ -36,16 +40,21 @@ async function run(code) {
 }
 
 test.before(async () => {
-  dev = spawn("npx", ["wrangler", "dev", "--port", String(PORT), "--local"], {
+  dev = spawn(process.execPath, [wrangler, "dev", "--port", String(PORT), "--local"], {
     cwd,
+    detached: process.platform !== "win32",
     stdio: ["ignore", "pipe", "pipe"],
   });
-  dev.stdout.on("data", () => {});
-  dev.stderr.on("data", () => {});
+  dev.stdout.on("data", (chunk) => (devOutput += chunk));
+  dev.stderr.on("data", (chunk) => (devOutput += chunk));
   await waitForReady();
 });
 
-test.after(() => dev?.kill("SIGTERM"));
+test.after(() => {
+  if (!dev?.pid || dev.exitCode !== null || dev.signalCode !== null) return;
+  if (process.platform === "win32") dev.kill("SIGTERM");
+  else process.kill(-dev.pid, "SIGTERM");
+});
 
 test("runs pure Python in a Worker", async () => {
   assert.deepEqual(await run("1 + 2"), { status: 200, body: { ok: true, result: 3 } });
