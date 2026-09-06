@@ -1,0 +1,19 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "monty-codemode-think-agent-example",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "ai": { "binding": "AI" },
+  "durable_objects": {
+    "bindings": [{ "class_name": "MontyProjectAgent", "name": "MontyProjectAgent" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["MontyProjectAgent"] }],
+  "rules": [{ "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true }],
+  // These aliases let the example run from the package repository. Consumers
+  // install the package and can remove them.
+  "alias": {
+    "@smithclay/cloudflare-codemode-monty": "../../src/index.ts",
+    "@smithclay/cloudflare-codemode-monty/worker": "../../src/worker.ts",
+  },
+}

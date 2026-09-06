@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "codemode-monty-example",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  // Bundles the ~17 MB Monty wasm runtime as a WebAssembly.Module.
+  // The Worker is ~5.2 MB gzipped, so it needs the paid plan's 10 MB limit.
+  "rules": [{ "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true }],
+  // Only needed because this example lives inside the package repo; in your own
+  // project the package resolves from node_modules and this can be deleted.
+  "alias": {
+    "@smithclay/cloudflare-codemode-monty": "../../src/index.ts",
+    "@smithclay/cloudflare-codemode-monty/worker": "../../src/worker.ts",
+  },
+}
