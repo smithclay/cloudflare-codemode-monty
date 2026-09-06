@@ -1,5 +1,7 @@
 # @smithclay/cloudflare-codemode-monty
 
+[![CI](https://github.com/smithclay/cloudflare-codemode-monty/actions/workflows/ci.yml/badge.svg)](https://github.com/smithclay/cloudflare-codemode-monty/actions/workflows/ci.yml)
+
 A [Monty](https://github.com/pydantic/monty) execution backend for [Cloudflare Code Mode](https://github.com/cloudflare/agents/tree/main/packages/codemode) that lets models orchestrate Code Mode tools using sandboxed **Python** instead of JavaScript.
 
 > **Status: experimental, v0.** The API is small on purpose and will change. It is tested under Node, inside workerd (`wrangler dev --local`), and with a temporary production-edge smoke test.
@@ -191,6 +193,10 @@ npm run check     # format + lint + typecheck + test
 ```bash
 ANTHROPIC_API_KEY=... npx tsx examples/ai-sdk.ts
 ```
+
+## Releases and security
+
+The public npm release path uses npm trusted publishing (GitHub Actions OIDC) and npm provenance; no long-lived npm publish token is stored in this repository. See the [release setup and process](docs/releasing.md), and report vulnerabilities through the [security policy](SECURITY.md).
 
 ## License
 

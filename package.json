@@ -12,6 +12,10 @@
     "python",
     "sandbox"
   ],
+  "homepage": "https://github.com/smithclay/cloudflare-codemode-monty#readme",
+  "bugs": {
+    "url": "https://github.com/smithclay/cloudflare-codemode-monty/issues"
+  },
   "license": "MIT",
   "author": "smithclay",
   "repository": {
@@ -33,6 +37,11 @@
       "types": "./dist/worker.d.ts",
       "default": "./dist/worker.js"
     }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -75,6 +84,6 @@
     "ai": "^6.0.0 || ^7.0.0"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.14.0"
   }
 }
