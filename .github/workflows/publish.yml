@@ -38,5 +38,5 @@ jobs:
       - name: Verify tag matches package version
         env:
           TAG: ${{ github.ref_name }}
-        run: test "$TAG" = "v$(node -p \"require('./package.json').version\")"
+        run: test "$TAG" = "v$(node -p "require('./package.json').version")"
       - run: npm publish
