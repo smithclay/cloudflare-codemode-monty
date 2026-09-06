@@ -52,9 +52,9 @@
     "format:check": "oxfmt --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:worker": "node --test test/worker.e2e.mjs",
+    "test:worker": "npm run build && node --test test/worker.e2e.mjs",
     "test:worker:smoke": "node test/worker.production-smoke.mjs",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test",
+    "check": "npm run build && npm run format:check && npm run lint && npm run typecheck && npm run test",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {

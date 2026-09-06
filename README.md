@@ -185,7 +185,7 @@ npm run typecheck
 npm run format:check  # Oxfmt
 npm run lint          # OXLint correctness and suspicious rules
 npm run build
-npm run check     # format + lint + typecheck + test
+npm run check     # build + format + lint + typecheck + test
 ```
 
 `examples/ai-sdk.ts` needs `ANTHROPIC_API_KEY`:
