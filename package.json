@@ -59,7 +59,7 @@
   },
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "^0.4.2",
-    "@pydantic/monty": "^0.0.21"
+    "@pydantic/monty": "^0.0.23"
   },
   "devDependencies": {
     "@ai-sdk/anthropic": "4.0.49",
