@@ -66,7 +66,7 @@
     "@ai-sdk/provider": "4.0.10",
     "@cloudflare/codemode": "0.5.1",
     "@cloudflare/think": "0.17.0",
-    "@cloudflare/workers-types": "5.20260830.1",
+    "@cloudflare/workers-types": "5.20260910.1",
     "@types/json-schema": "7.0.15",
     "@types/node": "26.4.1",
     "agents": "0.22.0",
