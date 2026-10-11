@@ -1,3 +1,5 @@
+# ARCHIVED 10/11/26: Workers now support Python. https://developers.cloudflare.com/workers/languages/python/
+
 # @smithclay/cloudflare-codemode-monty
 
 [![CI](https://github.com/smithclay/cloudflare-codemode-monty/actions/workflows/ci.yml/badge.svg)](https://github.com/smithclay/cloudflare-codemode-monty/actions/workflows/ci.yml)
